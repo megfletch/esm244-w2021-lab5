@@ -1,0 +1,129 @@
+---
+title: "ESM 244 Week 5 Lab"
+author: "Meghan Fletcher"
+date: "2/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tsibble)
+library(feasts)
+library(fable)
+library(here)
+```
+
+## Read in energy data and convert to a tsibble
+
+```{r}
+energy <- read_csv(here("data", "energy.csv"))
+```
+
+1. Add a new column (date) that is the current month column converted to a time series class, yearmonth
+2. Convert the data frame to a tsibble, with that date column as the time index
+```{r}
+energy_ts <- energy %>% 
+  mutate(date = tsibble::yearmonth(month)) %>% 
+  as_tsibble(key = NULL, index = date)
+```
+
+## Exploratory time series visualization
+
+```{r}
+ggplot(data = energy_ts, aes(x = date, y = res_total)) +
+  geom_line() +
+  labs(y = "Residentail energy consumption \n (Trillion BTU)")
+```
+**Take-aways from this plot:**
+ - Overall increasing trend overall, but stability (and possibly a slight decreasing trend) starting around 2005
+ - Clear seasonality, with a dominant seasonal feature and also a secondary peak each year - that secondary peak has increased substantially
+ - No notable cyclicality or outliers
+ 
+### Seasonplot:
+```{r}
+# use feasts::gg_season() to create an exploratory seasonplot, which has month on the x-axis, energy consumption on the y-axis, and each year is its own series (mapped by line color).
+
+energy_ts %>% 
+  gg_season(y = res_total) +
+  theme_minimal() +
+  labs(x = "month",
+       y = "residential energy consumption (trillion BTU)")
+```
+
+**Take-aways from this plot:**
+ - The highest residential energy usage is around December / January / February
+ - There is a secondary peak around July & August (that’s the repeated secondary peak we see in the original time series graph)
+ - We can also see that the prevalence of that second peak has been increasing over the course of the time series: in 1973 (orange) there was hardly any summer peak. In more recent years (blue/magenta) that peak is much more prominent.
+
+### Subseries plot:
+```{r}
+energy_ts %>% gg_subseries(res_total)
+```
+**Take-away here:** there is clear seasonality (higher values in winter months), with an increasingly evident second peak in June/July/August. This reinforces our takeaways from the raw data and seasonplots.
+
+
+### Decomposition (here by STL)
+
+STL decomposition allows seasonality to vary over time (a major difference from classical decomposition, and important here since we do see changes in seasonality).
+
+```{r}
+# Find STL decomposition
+dcmp <- energy_ts %>% 
+  model(STL(res_total ~ season()))
+
+# View the ocmponents: components(dcmp)
+
+# Visualize the decomposed components
+components(dcmp) %>%  autoplot() +
+  theme_minimal()
+```
+
+### Autocorrelaiton function (ACF)
+We use the ACF to explore autocorrelation (here, we would expect seasonality to be clear from the ACF):
+
+```{r}
+energy_ts %>% 
+  ACF(res_total) %>% 
+  autoplot()
+```
+
+We see that observations separated by 12 months are the most highly correlated, reflecting strong seasonality we see in all of our other exploratory visualizations.
+
+
+## Forecasting by Holt_Winters exponential smoothing
+
+To create the model below, we specify the model type (exponential smoothing, ETS), then tell it what type of seasonality it should assume using the season("") expression, where “N” = non-seasonal (try changing it to this to see how unimpressive the forecast becomes!), “A” = additive, “M” = multiplicative. Here, we’ll say seasonality is multiplicative due to the change in variance over time and also within the secondary summer peak:
+
+```{r}
+# Create the model
+energy_fit <- energy_ts %>% 
+  model(
+    ets = ETS(res_total ~ season("M"))
+  )
+
+# Forecast using the model 10 years into the future:
+energy_forecast <- energy_fit %>% 
+  forecast(h = "10 years")
+
+#Plot just the forecasted values (with 80 & 95% CIs):
+energy_forecast %>% 
+  autoplot()
+```
+
+```{r}
+# Or plot it added to the original data:
+energy_forecast %>% 
+  autoplot(energy_ts)
+```
+
+### Assessing residuals:
+
+
+
+
+
+
+
+
